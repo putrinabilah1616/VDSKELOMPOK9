@@ -1,0 +1,71 @@
+import json
+import pandas as pd
+import geopandas as gpd
+import plotly.express as px
+from dash import Dash, html, dcc
+
+# -------------------------------
+# 1. Baca data CSV
+# -------------------------------
+penduduk = pd.read_csv('data/jumlah_penduduk.csv', skiprows=3, header=None)
+pdrb = pd.read_csv('data/pdrb_kabupaten.csv', skiprows=3, header=None)
+luas_pulau = pd.read_csv('data/kabupaten_luas_dan_pulau.csv', skiprows=3, header=None)
+
+penduduk = penduduk[[0, 1]].rename(columns={0: 'Kabupaten/Kota', 1: 'Jumlah Penduduk'})
+pdrb = pdrb[[0, 2]].rename(columns={0: 'Kabupaten/Kota', 2: 'PDRB'})
+luas_pulau = luas_pulau[[0, 1, 3]].rename(columns={0: 'Kabupaten/Kota', 1: 'Luas Wilayah (Km2)', 3: 'Jumlah Pulau'})
+
+# Gabungkan data
+df = penduduk.merge(pdrb, on='Kabupaten/Kota').merge(luas_pulau, on='Kabupaten/Kota')
+
+# -------------------------------
+# 2. Baca peta Lampung GeoJSON
+# -------------------------------
+gdf = gpd.read_file('data/gadm41_IDN_2.json')
+
+# Filter hanya wilayah Provinsi Lampung
+gdf = gdf[gdf['NAME_1'].str.lower() == 'lampung']
+
+# Normalisasi nama kolom agar cocok
+gdf['Kabupaten/Kota'] = gdf['NAME_2'].str.replace(" ", "").str.lower()
+df['Kabupaten/Kota'] = df['Kabupaten/Kota'].str.replace(" ", "").str.lower()
+
+# Gabungkan data dengan GeoDataFrame
+gdf = gdf.merge(df, on='Kabupaten/Kota', how='left')
+
+# Konversi GeoDataFrame ke GeoJSON
+gdf_json = json.loads(gdf.to_json())
+
+# -------------------------------
+# 3. Buat choropleth map dari geojson
+# -------------------------------
+fig = px.choropleth_mapbox(
+    gdf,
+    geojson=gdf_json,
+    locations='Kabupaten/Kota',
+    featureidkey='properties.Kabupaten/Kota',
+    color='PDRB',
+    hover_name='Kabupaten/Kota',
+    mapbox_style='carto-positron',
+    center={"lat": -4.9, "lon": 105.3},
+    zoom=6.5,
+    color_continuous_scale='Plasma',
+    opacity=0.6
+)
+
+fig.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, title="PDRB per Kabupaten/Kota di Lampung")
+
+# -------------------------------
+# 4. Layout Dash
+# -------------------------------
+app = Dash(__name__)
+app.layout = html.Div([
+    html.H1("Dashboard Ekonomi Wilayah Lampung"),
+    dcc.Graph(figure=fig)
+])
+
+# -------------------------------
+# 5. Jalankan Dash App
+# -------------------------------
+if __name__ == '_main_':
+    app.run_server(debug=True)
